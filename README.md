@@ -4,15 +4,24 @@ This is a practical example demonstrating how to use the CloudWeGo Eino framewor
 
 ## Overview
 
-This example creates a weather assistant that can:
-- Answer questions about weather in specific cities
-- Handle ambiguous requests by asking for clarification
-- Use streaming responses for real-time interaction
+This repository contains two examples:
 
-The example demonstrates key Eino features:
-- **ChatModelAgent**: A simple agent that can call tools
-- **Tool Creation**: Custom tool for weather information
+### Basic Example (`main.go`)
+- Simple weather assistant with one tool
+- Demonstrates basic ChatModelAgent setup
+- Shows streaming response handling
+
+### Advanced Example (`advanced_example.go`)
+- Multi-tool city guide assistant
+- Includes detailed weather and city information tools
+- Demonstrates callbacks for logging streaming events
+- Shows complex multi-tool coordination
+
+Both examples demonstrate key Eino features:
+- **ChatModelAgent**: Agents that can call tools automatically
+- **Tool Creation**: Custom tools with structured input/output
 - **Streaming**: Real-time response handling
+- **Callbacks**: Event-driven monitoring and logging
 - **Context Management**: Maintaining conversation context
 
 ## Prerequisites
@@ -33,90 +42,150 @@ The example demonstrates key Eino features:
    ```bash
    export OPENAI_API_KEY="your-api-key-here"
    ```
+   
+   Or copy the example env file:
+   ```bash
+   cp .env.example .env
+   # Edit .env with your actual credentials
+   source .env
+   ```
 
-3. Run the example:
+3. Run the examples:
+
+   **Basic Example:**
    ```bash
    go run main.go
    ```
 
+   **Advanced Example:**
+   ```bash
+   go run advanced_example.go advanced
+   ```
+
 ## Code Structure
 
-### Main Components
+### Basic Example (`main.go`)
+- **Weather Tool**: Simple tool with basic weather data
+- **Single Agent**: Configured with one tool and basic instructions
+- **Simple Streaming**: Basic event processing
 
-- **`main.go`**: Contains the complete implementation
-- **Weather Tool**: A custom tool that simulates weather API calls
-- **ChatModelAgent**: Configured with instructions and the weather tool
-- **Runner**: Handles execution and streaming responses
+### Advanced Example (`advanced_example.go`)
+- **Multiple Tools**: Weather tool + City info tool
+- **Enhanced Data**: Detailed weather (temp, humidity, wind) and city info (population, country, language)
+- **Callbacks**: Streaming event logging with custom handlers
+- **Complex Queries**: Handles multi-aspect questions requiring multiple tools
 
-### Key Features Demonstrated
+## Key Features Demonstrated
 
-1. **Tool Calling**: The agent automatically decides when to call the weather tool
-2. **Streaming Responses**: Real-time output as the LLM generates responses
-3. **Error Handling**: Proper error handling for API calls and tool execution
-4. **Flexible Configuration**: Easy to modify for different LLM providers
+### 1. Tool Calling Architecture
+```go
+// Create invokable tools
+tool, err := tool.NewInvokableTool(
+    "tool_name",
+    "Tool description",
+    yourFunction, // Function with structured input/output
+)
 
-## How It Works
+// Configure agent with tools
+agent, err := adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{
+    Model: chatModel,
+    ToolsConfig: adk.ToolsConfig{
+        ToolsNodeConfig: compose.ToolsNodeConfig{
+            Tools: []tool.BaseTool{tool},
+        },
+    },
+})
+```
 
-1. The `ChatModelAgent` is initialized with:
-   - An OpenAI ChatModel
-   - A custom weather tool
-   - Instructions for behavior
+### 2. Streaming Response Handling
+```go
+// Enable streaming in runner
+runner := adk.NewRunner(ctx, adk.RunnerConfig{
+    Agent:           agent,
+    EnableStreaming: true,
+})
 
-2. When queried, the agent:
-   - Analyzes the user's request
-   - Decides whether to call the weather tool
-   - Processes the tool response
-   - Generates a natural language response
+// Process streaming events
+iter := runner.Query(ctx, "Your question here")
+for {
+    event, ok := iter.Next()
+    if !ok { break }
+    if event.Message != nil && event.Message.Content != "" {
+        fmt.Print(event.Message.Content) // Real-time output
+    }
+}
+```
 
-3. The runner handles:
-   - Streaming the response in real-time
-   - Error handling
-   - Event processing
+### 3. Callbacks for Monitoring
+```go
+// Create streaming callbacks
+callback := cbutils.NewHandlerHelper().ChatModel(&cbutils.ModelCallbackHandler{
+    OnStartWithStreamInput: func(ctx context.Context, info *callbacks.RunInfo, input *tool.StreamingInput) context.Context {
+        fmt.Printf("🚀 Starting streaming request...\n")
+        return ctx
+    },
+    OnEndWithStreamOutput: func(ctx context.Context, info *callbacks.RunInfo, output *tool.StreamingOutput) {
+        fmt.Printf("✅ Streaming completed\n")
+    },
+}).Handler()
+
+// Add to agent configuration
+agent, err := adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{
+    Callbacks: []callbacks.Handler{callback},
+    // ... other config
+})
+```
 
 ## Customization
 
-You can easily customize this example:
-
 ### Change LLM Provider
-Modify the ChatModel initialization in `main.go`:
+Modify the ChatModel initialization:
 ```go
-// For OpenAI
+// For OpenAI (default)
 chatModel, err := openai.NewChatModel(ctx, &openai.ChatModelConfig{
     Model:  "gpt-4o",
     APIKey: os.Getenv("OPENAI_API_KEY"),
 })
 
-// For other providers (when supported)
-// chatModel, err := otherProvider.NewChatModel(...)
+// For Azure OpenAI
+chatModel, err := openai.NewChatModel(ctx, &openai.ChatModelConfig{
+    APIKey:  os.Getenv("OPENAI_API_KEY"),
+    Model:   os.Getenv("OPENAI_MODEL"),
+    BaseURL: os.Getenv("OPENAI_BASE_URL"),
+    ByAzure: true,
+})
+
+// For Ark (Volcano Engine) - see .env.example
 ```
 
 ### Add More Tools
-Create additional tools following the weather tool pattern:
+Create additional tools following the existing patterns:
 ```go
-func createAnotherTool() tool.InvokableTool {
+func createYourTool() tool.InvokableTool {
     tool, err := tool.NewInvokableTool(
-        "tool_name",
-        "Tool description",
-        yourFunction,
+        "your_tool_name",
+        "Tool description with specific capabilities",
+        yourFunction, // Must have structured input/output types
     )
     // ... error handling
     return tool
 }
 ```
 
-Then add it to the agent configuration:
-```go
-Tools: []tool.BaseTool{createWeatherTool(), createAnotherTool()},
-```
-
 ### Modify Agent Behavior
-Update the `Instruction` field in the `ChatModelAgentConfig` to change how the agent behaves.
+Update the `Instruction` field to change agent personality and capabilities:
+```go
+Instruction: `You are a [role]. 
+Use these tools: [tool descriptions].
+Follow these guidelines: [specific instructions].`,
+```
 
 ## Learning Resources
 
 - [CloudWeGo Eino Documentation](https://www.cloudwego.io/docs/eino/)
 - [Eino Examples Repository](https://github.com/cloudwego/eino-examples)
 - [Eino Extensions](https://github.com/cloudwego/eino-ext)
+- [Official Quick Start Guide](https://www.cloudwego.io/docs/eino/quick_start/)
 
 ## License
 
@@ -124,4 +193,8 @@ This example is provided under the Apache 2.0 License. See the [LICENSE](LICENSE
 
 ---
 
-**Note**: This example uses mock weather data. In a production application, you would integrate with a real weather API service.
+**Note**: These examples use mock data for demonstration purposes. In production applications:
+- Replace mock functions with real API integrations
+- Add proper error handling and retry logic
+- Implement authentication and security best practices
+- Consider rate limiting and cost management
